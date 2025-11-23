@@ -6,6 +6,7 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
 import Navbar from "@/components/Navbar";
+import { fetchWithAuth } from "@/lib/api-client";
 
 interface ProfileData {
   firstName: string;
@@ -28,6 +29,7 @@ export default function Profile() {
   const router = useRouter();
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [loadingProfile, setLoadingProfile] = useState(true);
   const [profile, setProfile] = useState<ProfileData>({
     firstName: "",
     lastName: "",
@@ -47,8 +49,45 @@ export default function Profile() {
   useEffect(() => {
     if (!loading && !user) {
       router.push("/auth/signin");
+      return;
+    }
+
+    if (user) {
+      loadProfile();
     }
   }, [user, loading, router]);
+
+  const loadProfile = async () => {
+    if (!user) return;
+
+    try {
+      const response = await fetchWithAuth(`/api/profile?userId=${user.uid}`);
+      if (response.ok) {
+        const data = await response.json();
+        if (data.profile) {
+          setProfile({
+            firstName: data.profile.firstName || "",
+            lastName: data.profile.lastName || "",
+            phone: data.profile.phone || "",
+            dateOfBirth: data.profile.dateOfBirth || "",
+            ssn: data.profile.ssn || "",
+            street: data.profile.address?.street || "",
+            city: data.profile.address?.city || "",
+            state: data.profile.address?.state || "",
+            zipCode: data.profile.address?.zipCode || "",
+            branch: data.profile.veteranStatus?.branch || "",
+            serviceStart: data.profile.veteranStatus?.serviceStart || "",
+            serviceEnd: data.profile.veteranStatus?.serviceEnd || "",
+            dischargeType: data.profile.veteranStatus?.dischargeType || "",
+          });
+        }
+      }
+    } catch (error) {
+      console.error("Error loading profile:", error);
+    } finally {
+      setLoadingProfile(false);
+    }
+  };
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
@@ -61,9 +100,8 @@ export default function Profile() {
     setSaving(true);
 
     try {
-      const response = await fetch("/api/profile", {
+      const response = await fetchWithAuth("/api/profile", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           userId: user?.uid,
           ...profile,
@@ -83,7 +121,7 @@ export default function Profile() {
     }
   };
 
-  if (loading || !user) {
+  if (loading || !user || loadingProfile) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
@@ -174,7 +212,7 @@ export default function Profile() {
                   placeholder="XXX-XX-XXXX"
                 />
                 <p className="text-xs text-secondary mt-1">
-                  Your SSN is encrypted and stored securely. It will only be used for form filling.
+                  Your SSN is encrypted using AES-256-GCM before storage. It will only be used for form filling.
                 </p>
               </div>
             </div>

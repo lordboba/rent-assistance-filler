@@ -7,6 +7,28 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
 import Navbar from "@/components/Navbar";
 import { FORM_TYPES, FormField } from "@/lib/types";
+import { fetchWithAuth } from "@/lib/api-client";
+
+interface UserProfile {
+  firstName?: string;
+  lastName?: string;
+  phone?: string;
+  dateOfBirth?: string;
+  ssn?: string;
+  email?: string;
+  address?: {
+    street?: string;
+    city?: string;
+    state?: string;
+    zipCode?: string;
+  };
+  veteranStatus?: {
+    branch?: string;
+    serviceStart?: string;
+    serviceEnd?: string;
+    dischargeType?: string;
+  };
+}
 
 function FormFillContent() {
   const { user, loading } = useAuth();
@@ -16,6 +38,7 @@ function FormFillContent() {
 
   const [formData, setFormData] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
+  const [loadingProfile, setLoadingProfile] = useState(true);
 
   const currentForm = FORM_TYPES.find((f) => f.id === formType);
 
@@ -25,16 +48,62 @@ function FormFillContent() {
     }
   }, [user, loading, router]);
 
+  // Load profile and autofill form
   useEffect(() => {
-    // Initialize form with empty values
-    if (currentForm) {
+    if (!currentForm || !user) return;
+
+    const loadAndAutofill = async () => {
+      // Initialize with empty values first
       const initialData: Record<string, string> = {};
       currentForm.fields.forEach((field) => {
         initialData[field.id] = "";
       });
+
+      try {
+        const response = await fetchWithAuth(`/api/profile?userId=${user.uid}`);
+        if (response.ok) {
+          const data = await response.json();
+          const profile: UserProfile = data.profile || {};
+
+          // Autofill fields that have autoFillKey
+          currentForm.fields.forEach((field) => {
+            if (field.autoFillKey) {
+              const value = getProfileValue(profile, field.autoFillKey, user.email || "");
+              if (value) {
+                initialData[field.id] = value;
+              }
+            }
+          });
+        }
+      } catch (error) {
+        console.error("Error loading profile for autofill:", error);
+      }
+
       setFormData(initialData);
+      setLoadingProfile(false);
+    };
+
+    loadAndAutofill();
+  }, [currentForm, user]);
+
+  // Helper to get nested profile values
+  const getProfileValue = (profile: UserProfile, key: string, userEmail: string): string => {
+    if (key === "email") return userEmail;
+
+    if (key === "address") {
+      const addr = profile.address;
+      if (!addr) return "";
+      const parts = [addr.street, addr.city, addr.state, addr.zipCode].filter(Boolean);
+      return parts.join(", ");
     }
-  }, [currentForm]);
+
+    if (key.startsWith("veteranStatus.")) {
+      const subKey = key.split(".")[1] as keyof NonNullable<UserProfile["veteranStatus"]>;
+      return profile.veteranStatus?.[subKey] || "";
+    }
+
+    return (profile as Record<string, string>)[key] || "";
+  };
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target;
@@ -45,9 +114,8 @@ function FormFillContent() {
     setSaving(true);
 
     try {
-      const response = await fetch("/api/forms", {
+      const response = await fetchWithAuth("/api/forms", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           userId: user?.uid,
           formType,
@@ -182,7 +250,7 @@ function FormFillContent() {
     }
   };
 
-  if (loading || !user) {
+  if (loading || !user || loadingProfile) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>

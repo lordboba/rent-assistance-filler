@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { saveUserProfile } from "@/lib/redis";
+import { saveUserProfile, getUserProfile } from "@/lib/redis";
+import { verifyUserOwnership, unauthorizedResponse, forbiddenResponse } from "@/lib/api-auth";
 
 export async function POST(request: NextRequest) {
   try {
@@ -8,6 +9,14 @@ export async function POST(request: NextRequest) {
 
     if (!userId) {
       return NextResponse.json({ error: "User ID is required" }, { status: 400 });
+    }
+
+    // Verify the authenticated user owns this profile
+    const authResult = await verifyUserOwnership(request, userId);
+    if (!authResult.authenticated) {
+      return authResult.error?.includes("permission")
+        ? forbiddenResponse(authResult.error)
+        : unauthorizedResponse(authResult.error);
     }
 
     await saveUserProfile(userId, {
@@ -51,9 +60,16 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "User ID is required" }, { status: 400 });
     }
 
-    // In a real implementation, this would fetch from Redis
-    // For now, return empty profile
-    return NextResponse.json({ profile: null });
+    // Verify the authenticated user owns this profile
+    const authResult = await verifyUserOwnership(request, userId);
+    if (!authResult.authenticated) {
+      return authResult.error?.includes("permission")
+        ? forbiddenResponse(authResult.error)
+        : unauthorizedResponse(authResult.error);
+    }
+
+    const profile = await getUserProfile(userId);
+    return NextResponse.json({ profile });
   } catch (error) {
     console.error("Error fetching profile:", error);
     return NextResponse.json({ error: "Failed to fetch profile" }, { status: 500 });

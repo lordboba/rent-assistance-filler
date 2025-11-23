@@ -1,4 +1,5 @@
 import { createClient } from "redis";
+import { encrypt, decrypt, isEncryptionConfigured } from "./encryption";
 
 type RedisClient = ReturnType<typeof createClient>;
 
@@ -60,26 +61,70 @@ export interface FormProgress {
   updatedAt: string;
 }
 
+// Sensitive fields that should be encrypted before storage
+const SENSITIVE_PROFILE_FIELDS = ["ssn", "dateOfBirth"] as const;
+
+// Encrypt sensitive fields in profile before saving
+function encryptProfileData(profile: Partial<UserProfile>): Partial<UserProfile> {
+  if (!isEncryptionConfigured()) {
+    console.warn("ENCRYPTION_KEY not configured - storing data unencrypted");
+    return profile;
+  }
+
+  const encrypted = { ...profile };
+  for (const field of SENSITIVE_PROFILE_FIELDS) {
+    if (field in encrypted && encrypted[field]) {
+      (encrypted as Record<string, unknown>)[field] = encrypt(encrypted[field] as string);
+    }
+  }
+  return encrypted;
+}
+
+// Decrypt sensitive fields when reading profile
+function decryptProfileData(profile: UserProfile): UserProfile {
+  if (!isEncryptionConfigured()) {
+    return profile;
+  }
+
+  const decrypted = { ...profile };
+  for (const field of SENSITIVE_PROFILE_FIELDS) {
+    if (field in decrypted && decrypted[field]) {
+      (decrypted as Record<string, unknown>)[field] = decrypt(decrypted[field] as string);
+    }
+  }
+  return decrypted;
+}
+
 // User Profile operations
 export async function saveUserProfile(userId: string, profile: Partial<UserProfile>): Promise<void> {
   const client = await getRedisClient();
   if (!client) return;
   const key = `user:${userId}:profile`;
-  const existing = await getUserProfile(userId);
+  const existing = await getUserProfileRaw(userId);
   const updated = {
     ...existing,
     ...profile,
     updatedAt: new Date().toISOString(),
   };
-  await client.set(key, JSON.stringify(updated));
+  // Encrypt sensitive fields before saving
+  const encryptedProfile = encryptProfileData(updated);
+  await client.set(key, JSON.stringify(encryptedProfile));
 }
 
-export async function getUserProfile(userId: string): Promise<UserProfile | null> {
+// Get raw profile without decryption (for internal use)
+async function getUserProfileRaw(userId: string): Promise<UserProfile | null> {
   const client = await getRedisClient();
   if (!client) return null;
   const key = `user:${userId}:profile`;
   const data = await client.get(key);
   return data ? JSON.parse(data) : null;
+}
+
+export async function getUserProfile(userId: string): Promise<UserProfile | null> {
+  const profile = await getUserProfileRaw(userId);
+  if (!profile) return null;
+  // Decrypt sensitive fields when reading
+  return decryptProfileData(profile);
 }
 
 // Form Progress operations

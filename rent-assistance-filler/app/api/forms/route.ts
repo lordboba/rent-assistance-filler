@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { saveFormProgress, getFormProgress, getAllUserForms } from "@/lib/redis";
 import { v4 as uuidv4 } from "uuid";
+import { verifyUserOwnership, unauthorizedResponse, forbiddenResponse } from "@/lib/api-auth";
 
 export async function POST(request: NextRequest) {
   try {
@@ -9,6 +10,14 @@ export async function POST(request: NextRequest) {
 
     if (!userId || !formType) {
       return NextResponse.json({ error: "User ID and form type are required" }, { status: 400 });
+    }
+
+    // Verify the authenticated user owns this form
+    const authResult = await verifyUserOwnership(request, userId);
+    if (!authResult.authenticated) {
+      return authResult.error?.includes("permission")
+        ? forbiddenResponse(authResult.error)
+        : unauthorizedResponse(authResult.error);
     }
 
     const formId = `${formType}-${uuidv4().slice(0, 8)}`;
@@ -42,6 +51,14 @@ export async function GET(request: NextRequest) {
 
     if (!userId) {
       return NextResponse.json({ error: "User ID is required" }, { status: 400 });
+    }
+
+    // Verify the authenticated user owns these forms
+    const authResult = await verifyUserOwnership(request, userId);
+    if (!authResult.authenticated) {
+      return authResult.error?.includes("permission")
+        ? forbiddenResponse(authResult.error)
+        : unauthorizedResponse(authResult.error);
     }
 
     if (formId) {

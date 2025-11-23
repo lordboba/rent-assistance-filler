@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { saveUserProfile, getUserProfile, saveExtractedData } from "@/lib/redis";
+import { verifyUserOwnership, unauthorizedResponse, forbiddenResponse } from "@/lib/api-auth";
 
 export async function POST(request: NextRequest) {
   try {
@@ -8,6 +9,14 @@ export async function POST(request: NextRequest) {
 
     if (!userId) {
       return NextResponse.json({ error: "User ID is required" }, { status: 400 });
+    }
+
+    // Verify the authenticated user owns these documents
+    const authResult = await verifyUserOwnership(request, userId);
+    if (!authResult.authenticated) {
+      return authResult.error?.includes("permission")
+        ? forbiddenResponse(authResult.error)
+        : unauthorizedResponse(authResult.error);
     }
 
     // Get existing profile
