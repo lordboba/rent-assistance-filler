@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
 import { fetchWithAuth } from "@/lib/api-client";
 import { FORM_TYPES } from "@/lib/types";
+import Navbar from "@/components/Navbar";
 
 interface SavedForm {
   id: string;
@@ -140,6 +141,7 @@ export default function SavedFormsPage() {
 
   return (
     <div className="min-h-screen bg-background">
+      <Navbar />
       <div className="max-w-4xl mx-auto px-4 py-8">
         <div className="mb-8">
           <h1 className="font-serif text-3xl font-bold text-foreground">Saved Forms</h1>
