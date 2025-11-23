@@ -7,6 +7,28 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
 import Navbar from "@/components/Navbar";
 import { FORM_TYPES } from "@/lib/types";
+import { fetchWithAuth } from "@/lib/api-client";
+
+interface UserProfile {
+  firstName?: string;
+  lastName?: string;
+  phone?: string;
+  dateOfBirth?: string;
+  ssn?: string;
+  email?: string;
+  address?: {
+    street?: string;
+    city?: string;
+    state?: string;
+    zipCode?: string;
+  };
+  veteranStatus?: {
+    branch?: string;
+    serviceStart?: string;
+    serviceEnd?: string;
+    dischargeType?: string;
+  };
+}
 
 function ReviewContent() {
   const { user, loading } = useAuth();
@@ -16,6 +38,8 @@ function ReviewContent() {
 
   const [exporting, setExporting] = useState(false);
   const [exported, setExported] = useState(false);
+  const [formData, setFormData] = useState<Record<string, string>>({});
+  const [loadingData, setLoadingData] = useState(true);
 
   const currentForm = FORM_TYPES.find((f) => f.id === formType);
 
@@ -25,19 +49,109 @@ function ReviewContent() {
     }
   }, [user, loading, router]);
 
+  // Load profile and autofill form data for review
+  useEffect(() => {
+    if (!currentForm || !user) return;
+
+    const loadFormData = async () => {
+      const data: Record<string, string> = {};
+
+      try {
+        const response = await fetchWithAuth(`/api/profile?userId=${user.uid}`);
+        if (response.ok) {
+          const result = await response.json();
+          const profile: UserProfile = result.profile || {};
+
+          // Autofill fields that have autoFillKey
+          currentForm.fields.forEach((field) => {
+            if (field.autoFillKey) {
+              const value = getProfileValue(profile, field.autoFillKey, user.email || "");
+              data[field.id] = value || "";
+            } else {
+              data[field.id] = "";
+            }
+          });
+        }
+      } catch (error) {
+        console.error("Error loading form data:", error);
+      }
+
+      setFormData(data);
+      setLoadingData(false);
+    };
+
+    loadFormData();
+  }, [currentForm, user]);
+
+  // Helper to get nested profile values
+  const getProfileValue = (profile: UserProfile, key: string, userEmail: string): string => {
+    if (key === "email") return userEmail;
+
+    if (key === "address") {
+      const addr = profile.address;
+      if (!addr) return "";
+      const parts = [addr.street, addr.city, addr.state, addr.zipCode].filter(Boolean);
+      return parts.join(", ");
+    }
+
+    if (key.startsWith("veteranStatus.")) {
+      const subKey = key.split(".")[1] as keyof NonNullable<UserProfile["veteranStatus"]>;
+      return profile.veteranStatus?.[subKey] || "";
+    }
+
+    return (profile as Record<string, string>)[key] || "";
+  };
+
+  // Mask sensitive data for display
+  const maskSensitiveData = (fieldId: string, value: string): string => {
+    if (fieldId === "ssn" && value) {
+      const digits = value.replace(/\D/g, "");
+      if (digits.length >= 4) {
+        return `***-**-${digits.slice(-4)}`;
+      }
+    }
+    return value || "Not provided";
+  };
+
   const handleExportPDF = async () => {
     setExporting(true);
 
-    // Simulate PDF generation
-    await new Promise((resolve) => setTimeout(resolve, 2000));
+    // Simulate PDF generation delay
+    await new Promise((resolve) => setTimeout(resolve, 1000));
 
-    // In a real app, this would generate and download a PDF
+    // Generate form content with actual data
+    const lines: string[] = [
+      `${currentForm?.name}`,
+      `${"=".repeat(50)}`,
+      ``,
+      `Generated: ${new Date().toLocaleDateString()}`,
+      `Category: ${currentForm?.category}`,
+      ``,
+      `FORM DATA`,
+      `${"-".repeat(50)}`,
+      ``,
+    ];
+
+    currentForm?.fields.forEach((field) => {
+      const value = formData[field.id] || "Not provided";
+      // Mask SSN in export too
+      const displayValue = field.id === "ssn" && value !== "Not provided"
+        ? `***-**-${value.replace(/\D/g, "").slice(-4)}`
+        : value;
+      lines.push(`${field.label}: ${displayValue}`);
+    });
+
+    lines.push(``);
+    lines.push(`${"-".repeat(50)}`);
+    lines.push(`This form was auto-filled from your saved profile.`);
+    lines.push(`Please review all information for accuracy before submission.`);
+
     setExporting(false);
     setExported(true);
 
-    // Simulate download
+    // Download as text file (in production, this would be a proper PDF)
     const element = document.createElement("a");
-    const content = `${currentForm?.name}\n\nForm exported successfully.\n\nThis is a placeholder for the actual PDF content.`;
+    const content = lines.join("\n");
     const file = new Blob([content], { type: "text/plain" });
     element.href = URL.createObjectURL(file);
     element.download = `${formType}-application.txt`;
@@ -46,7 +160,7 @@ function ReviewContent() {
     document.body.removeChild(element);
   };
 
-  if (loading || !user) {
+  if (loading || !user || loadingData) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
@@ -109,14 +223,18 @@ function ReviewContent() {
             </span>
           </div>
 
+          {/* Form Data Display */}
           <div className="border border-border rounded-lg p-6 bg-muted/50">
-            <div className="text-center text-secondary">
-              <svg className="w-16 h-16 mx-auto mb-4 text-border" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-              </svg>
-              <p className="text-sm">Form Preview</p>
-              <p className="text-xs mt-1">Your completed form is ready for export</p>
-            </div>
+            <dl className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
+              {currentForm.fields.map((field) => (
+                <div key={field.id} className={field.type === "address" || field.type === "textarea" ? "sm:col-span-2" : ""}>
+                  <dt className="text-secondary text-xs uppercase tracking-wide">{field.label}</dt>
+                  <dd className="font-medium text-foreground mt-1">
+                    {maskSensitiveData(field.id, formData[field.id])}
+                  </dd>
+                </div>
+              ))}
+            </dl>
           </div>
 
           {/* Form Summary */}
@@ -133,7 +251,9 @@ function ReviewContent() {
               </div>
               <div>
                 <dt className="text-secondary">Fields Completed</dt>
-                <dd className="font-medium text-foreground">{currentForm.fields.length}</dd>
+                <dd className="font-medium text-foreground">
+                  {Object.values(formData).filter(Boolean).length} / {currentForm.fields.length}
+                </dd>
               </div>
               <div>
                 <dt className="text-secondary">Status</dt>

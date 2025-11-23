@@ -2,7 +2,7 @@
 
 export const dynamic = "force-dynamic";
 
-import { useState, useEffect, Suspense } from "react";
+import { useState, useEffect, Suspense, useRef, useCallback } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
 import Navbar from "@/components/Navbar";
@@ -30,6 +30,12 @@ interface UserProfile {
   };
 }
 
+interface SavedForm {
+  id: string;
+  formData: Record<string, string>;
+  status: string;
+}
+
 function FormFillContent() {
   const { user, loading } = useAuth();
   const router = useRouter();
@@ -38,7 +44,10 @@ function FormFillContent() {
 
   const [formData, setFormData] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
-  const [loadingProfile, setLoadingProfile] = useState(true);
+  const [loadingData, setLoadingData] = useState(true);
+  const [lastSaved, setLastSaved] = useState<Date | null>(null);
+  const [formId, setFormId] = useState<string | null>(null);
+  const autoSaveTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   const currentForm = FORM_TYPES.find((f) => f.id === formType);
 
@@ -48,11 +57,11 @@ function FormFillContent() {
     }
   }, [user, loading, router]);
 
-  // Load profile and autofill form
+  // Load saved form data first, then fall back to profile autofill
   useEffect(() => {
     if (!currentForm || !user) return;
 
-    const loadAndAutofill = async () => {
+    const loadFormData = async () => {
       // Initialize with empty values first
       const initialData: Record<string, string> = {};
       currentForm.fields.forEach((field) => {
@@ -60,9 +69,32 @@ function FormFillContent() {
       });
 
       try {
-        const response = await fetchWithAuth(`/api/profile?userId=${user.uid}`);
-        if (response.ok) {
-          const data = await response.json();
+        // First, try to load any existing saved forms of this type
+        const formsResponse = await fetchWithAuth(`/api/forms?userId=${user.uid}`);
+        if (formsResponse.ok) {
+          const formsData = await formsResponse.json();
+          const existingForm = formsData.forms?.find(
+            (f: SavedForm) => f.id.startsWith(formType || "") && f.status === "draft"
+          );
+
+          if (existingForm && existingForm.formData) {
+            // Load saved form data
+            setFormId(existingForm.id);
+            Object.keys(existingForm.formData).forEach((key) => {
+              if (key in initialData) {
+                initialData[key] = existingForm.formData[key] || "";
+              }
+            });
+            setFormData(initialData);
+            setLoadingData(false);
+            return;
+          }
+        }
+
+        // No saved form, autofill from profile
+        const profileResponse = await fetchWithAuth(`/api/profile?userId=${user.uid}`);
+        if (profileResponse.ok) {
+          const data = await profileResponse.json();
           const profile: UserProfile = data.profile || {};
 
           // Autofill fields that have autoFillKey
@@ -76,15 +108,15 @@ function FormFillContent() {
           });
         }
       } catch (error) {
-        console.error("Error loading profile for autofill:", error);
+        console.error("Error loading form data:", error);
       }
 
       setFormData(initialData);
-      setLoadingProfile(false);
+      setLoadingData(false);
     };
 
-    loadAndAutofill();
-  }, [currentForm, user]);
+    loadFormData();
+  }, [currentForm, user, formType]);
 
   // Helper to get nested profile values
   const getProfileValue = (profile: UserProfile, key: string, userEmail: string): string => {
@@ -105,6 +137,55 @@ function FormFillContent() {
     return (profile as Record<string, string>)[key] || "";
   };
 
+  // Autosave function
+  const autoSave = useCallback(async (data: Record<string, string>) => {
+    if (!user || !formType) return;
+
+    try {
+      const response = await fetchWithAuth("/api/forms", {
+        method: "POST",
+        body: JSON.stringify({
+          userId: user.uid,
+          formType,
+          formId: formId, // Include existing formId if we have one
+          formData: data,
+          status: "draft",
+        }),
+      });
+
+      if (response.ok) {
+        const result = await response.json();
+        if (result.formId && !formId) {
+          setFormId(result.formId);
+        }
+        setLastSaved(new Date());
+      }
+    } catch (error) {
+      console.error("Autosave error:", error);
+    }
+  }, [user, formType, formId]);
+
+  // Debounced autosave on form change
+  useEffect(() => {
+    if (loadingData || Object.keys(formData).length === 0) return;
+
+    // Clear existing timer
+    if (autoSaveTimerRef.current) {
+      clearTimeout(autoSaveTimerRef.current);
+    }
+
+    // Set new timer for autosave (2 seconds after last change)
+    autoSaveTimerRef.current = setTimeout(() => {
+      autoSave(formData);
+    }, 2000);
+
+    return () => {
+      if (autoSaveTimerRef.current) {
+        clearTimeout(autoSaveTimerRef.current);
+      }
+    };
+  }, [formData, loadingData, autoSave]);
+
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target;
     setFormData((prev) => ({ ...prev, [name]: value }));
@@ -119,12 +200,18 @@ function FormFillContent() {
         body: JSON.stringify({
           userId: user?.uid,
           formType,
+          formId: formId,
           formData,
           status,
         }),
       });
 
       if (response.ok) {
+        const result = await response.json();
+        if (result.formId) {
+          setFormId(result.formId);
+        }
+        setLastSaved(new Date());
         if (status === "completed") {
           router.push(`/forms/review?type=${formType}`);
         }
@@ -250,7 +337,7 @@ function FormFillContent() {
     }
   };
 
-  if (loading || !user || loadingProfile) {
+  if (loading || !user || loadingData) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
@@ -296,17 +383,26 @@ function FormFillContent() {
 
         {/* AI Auto-fill Notice */}
         <div className="card bg-blue-50 border-blue-200 mb-6">
-          <div className="flex items-start space-x-3">
-            <svg className="w-5 h-5 text-blue-600 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-            </svg>
-            <div>
-              <h3 className="font-medium text-blue-900">AI Auto-Fill Available</h3>
-              <p className="text-sm text-blue-800 mt-1">
-                Fields marked with a lightning bolt can be auto-filled from your profile and uploaded documents.
-                Review all auto-filled data for accuracy.
-              </p>
+          <div className="flex items-start justify-between">
+            <div className="flex items-start space-x-3">
+              <svg className="w-5 h-5 text-blue-600 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+              </svg>
+              <div>
+                <h3 className="font-medium text-blue-900">AI Auto-Fill & Auto-Save</h3>
+                <p className="text-sm text-blue-800 mt-1">
+                  Fields are auto-filled from your profile. Changes are automatically saved.
+                </p>
+              </div>
             </div>
+            {lastSaved && (
+              <span className="text-xs text-blue-700 flex items-center whitespace-nowrap ml-4">
+                <svg className="w-4 h-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                </svg>
+                Saved {lastSaved.toLocaleTimeString()}
+              </span>
+            )}
           </div>
         </div>
 

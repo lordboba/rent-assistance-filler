@@ -6,7 +6,7 @@ import { verifyUserOwnership, unauthorizedResponse, forbiddenResponse } from "@/
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { userId, formType, formData, status } = body;
+    const { userId, formType, formData, status, formId: existingFormId } = body;
 
     if (!userId || !formType) {
       return NextResponse.json({ error: "User ID and form type are required" }, { status: 400 });
@@ -20,7 +20,11 @@ export async function POST(request: NextRequest) {
         : unauthorizedResponse(authResult.error);
     }
 
-    const formId = `${formType}-${uuidv4().slice(0, 8)}`;
+    // Use existing formId if provided (for updates), otherwise create new
+    const formId = existingFormId || `${formType}-${uuidv4().slice(0, 8)}`;
+
+    // Get existing form to preserve createdAt
+    const existing = existingFormId ? await getFormProgress(userId, existingFormId) : null;
 
     await saveFormProgress(userId, formId, {
       id: formId,
@@ -28,7 +32,7 @@ export async function POST(request: NextRequest) {
       formType,
       formData,
       status: status || "draft",
-      createdAt: new Date().toISOString(),
+      createdAt: existing?.createdAt || new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     });
 
