@@ -2,7 +2,7 @@
 
 ## Security - Sensitive Data Storage
 
-### Current State (CRITICAL ISSUES)
+### Current State
 
 #### SSN & PII Storage
 - [ ] **Plain text storage** - SSN and all PII stored unencrypted in Redis (`lib/redis.ts`)
@@ -14,57 +14,55 @@
 
 #### API Authorization
 - [ ] **No server-side auth** - API routes accept any `userId` without ownership verification
-- [ ] `/api/profile`, `/api/documents`, `/api/forms` all vulnerable to unauthorized access
-
-#### Credentials Management
-- [ ] Redis credentials hardcoded in `.env.local`
-- [ ] Credentials potentially committed to git
 
 ---
 
-### Recommended Security Implementations
+### Storage Strategy (Hybrid Approach)
 
-#### 1. Field-Level Encryption for SSN
-- [ ] Implement AES-256-GCM encryption using Node.js `crypto` module
-- [ ] Store encryption keys in secure secrets manager (not in code)
-- [ ] Encrypt SSN before storing in Redis, decrypt on retrieval
-- [ ] Consider storing only last 4 digits if full SSN not required
+**Goal:** Minimize cost, keep sensitive docs off servers, encrypt what we do store.
 
-#### 2. Server-Side Authentication
-- [ ] Validate Firebase ID tokens on all API routes
-- [ ] Use `firebase-admin` SDK (already installed) to verify tokens
-- [ ] Ensure `userId` in request matches authenticated user's UID
-- [ ] Return 401/403 for unauthorized requests
+| Data Type | Storage | Reason |
+|-----------|---------|--------|
+| Documents (DD-214, ID, VA letters) | **IndexedDB (browser)** | Never leaves device, zero cost |
+| Extracted text from docs | **Redis (encrypted)** | Small data needed for form filling |
+| SSN, DOB, other PII | **Redis (encrypted)** | Small strings, field-level encryption |
 
-#### 3. Document Storage
-- [ ] Implement actual file upload to Firebase Storage
-- [ ] Use signed URLs with expiration for document access
-- [ ] Enable Firebase Storage security rules
-- [ ] Consider client-side encryption before upload
-
-#### 4. Secrets Management
-- [ ] Move Redis URL to platform secrets (Vercel env vars)
-- [ ] Remove `.env.local` from git / add to `.gitignore`
-- [ ] Rotate any exposed credentials
-- [ ] Use separate credentials for dev/staging/prod
-
-#### 5. Additional Security Measures
-- [ ] Add rate limiting to API routes
-- [ ] Implement audit logging for sensitive data access
-- [ ] Set TTL/data retention policy on Redis keys
-- [ ] Strengthen password requirements (currently 6 char minimum)
-- [ ] Add input validation/sanitization on all form fields
+**Flow:**
+1. User uploads document → stored in IndexedDB locally
+2. Extract relevant fields (client-side or temp server processing)
+3. Only extracted text stored in Redis (encrypted)
+4. Original document stays on user's device only
 
 ---
 
-### Files Requiring Changes
+### Implementation Tasks
 
-| File | Changes Needed |
-|------|----------------|
-| `lib/redis.ts` | Add encryption/decryption functions |
-| `app/api/profile/route.ts` | Add auth verification |
-| `app/api/documents/route.ts` | Add auth + implement actual upload |
-| `app/api/forms/route.ts` | Add auth verification |
-| `contexts/AuthContext.tsx` | Export token for API calls |
-| `app/profile/page.tsx` | Update or remove misleading encryption claim |
-| `.gitignore` | Add `.env.local` if not present |
+#### 1. Browser Document Storage (IndexedDB)
+- [ ] Create `lib/indexeddb.ts` utility for document CRUD
+- [ ] Store uploaded files in IndexedDB instead of sending to server
+- [ ] Update `app/documents/page.tsx` to use IndexedDB
+
+#### 2. Field-Level Encryption for PII
+- [ ] Add encryption helper using Node.js `crypto` module
+- [ ] Encrypt SSN/sensitive fields before Redis storage
+- [ ] Update `lib/redis.ts` to encrypt on save, decrypt on read
+
+#### 3. Basic API Auth (nice-to-have for hackathon)
+- [ ] Validate Firebase ID token on API routes using `firebase-admin`
+- [ ] Ensure `userId` matches authenticated user
+
+#### 4. Quick Fixes
+- [ ] Update or remove misleading "encrypted" claim in profile UI
+- [ ] Add `.env.local` to `.gitignore`
+
+---
+
+### Files to Change
+
+| File | Changes |
+|------|---------|
+| `lib/indexeddb.ts` | New - browser document storage |
+| `lib/redis.ts` | Add encrypt/decrypt for PII fields |
+| `app/documents/page.tsx` | Use IndexedDB instead of API upload |
+| `app/profile/page.tsx` | Fix misleading encryption claim |
+| `.gitignore` | Add `.env.local` |
