@@ -165,6 +165,14 @@ export async function getAllUserForms(userId: string): Promise<FormProgress[]> {
   return forms;
 }
 
+export async function deleteFormProgress(userId: string, formId: string): Promise<boolean> {
+  const client = await getRedisClient();
+  if (!client) return false;
+  const key = `user:${userId}:form:${formId}`;
+  const result = await client.del(key);
+  return result > 0;
+}
+
 // Extracted document data operations
 export async function saveExtractedData(userId: string, documentType: string, data: Record<string, string>): Promise<void> {
   const client = await getRedisClient();

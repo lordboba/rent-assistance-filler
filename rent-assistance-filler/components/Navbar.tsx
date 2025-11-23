@@ -13,6 +13,7 @@ export default function Navbar() {
     { href: "/profile", label: "Profile" },
     { href: "/documents", label: "Documents" },
     { href: "/forms", label: "Forms" },
+    { href: "/forms/saved", label: "Saved Forms" },
   ];
 
   return (

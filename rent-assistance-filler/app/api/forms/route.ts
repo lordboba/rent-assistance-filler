@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { saveFormProgress, getFormProgress, getAllUserForms } from "@/lib/redis";
+import { saveFormProgress, getFormProgress, getAllUserForms, deleteFormProgress } from "@/lib/redis";
 import { v4 as uuidv4 } from "uuid";
 import { verifyUserOwnership, unauthorizedResponse, forbiddenResponse } from "@/lib/api-auth";
 
@@ -75,5 +75,35 @@ export async function GET(request: NextRequest) {
   } catch (error) {
     console.error("Error fetching forms:", error);
     return NextResponse.json({ error: "Failed to fetch forms" }, { status: 500 });
+  }
+}
+
+export async function DELETE(request: NextRequest) {
+  try {
+    const { searchParams } = new URL(request.url);
+    const userId = searchParams.get("userId");
+    const formId = searchParams.get("formId");
+
+    if (!userId || !formId) {
+      return NextResponse.json({ error: "User ID and form ID are required" }, { status: 400 });
+    }
+
+    // Verify the authenticated user owns this form
+    const authResult = await verifyUserOwnership(request, userId);
+    if (!authResult.authenticated) {
+      return authResult.error?.includes("permission")
+        ? forbiddenResponse(authResult.error)
+        : unauthorizedResponse(authResult.error);
+    }
+
+    const deleted = await deleteFormProgress(userId, formId);
+    if (deleted) {
+      return NextResponse.json({ success: true, message: "Form deleted" });
+    } else {
+      return NextResponse.json({ error: "Form not found" }, { status: 404 });
+    }
+  } catch (error) {
+    console.error("Error deleting form:", error);
+    return NextResponse.json({ error: "Failed to delete form" }, { status: 500 });
   }
 }
