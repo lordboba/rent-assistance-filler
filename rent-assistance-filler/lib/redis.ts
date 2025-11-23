@@ -1,6 +1,12 @@
-import Redis from "ioredis";
+import { createClient } from "redis";
 
-const getRedisClient = () => {
+type RedisClient = ReturnType<typeof createClient>;
+
+let redis: RedisClient | null = null;
+
+const getRedisClient = async (): Promise<RedisClient | null> => {
+  if (redis) return redis;
+
   const redisUrl = process.env.REDIS_URL;
 
   if (!redisUrl) {
@@ -8,10 +14,11 @@ const getRedisClient = () => {
     return null;
   }
 
-  return new Redis(redisUrl);
+  redis = createClient({ url: redisUrl });
+  redis.on("error", (err) => console.error("Redis Client Error", err));
+  await redis.connect();
+  return redis;
 };
-
-const redis = getRedisClient();
 
 export interface UserProfile {
   id: string;
@@ -55,7 +62,8 @@ export interface FormProgress {
 
 // User Profile operations
 export async function saveUserProfile(userId: string, profile: Partial<UserProfile>): Promise<void> {
-  if (!redis) return;
+  const client = await getRedisClient();
+  if (!client) return;
   const key = `user:${userId}:profile`;
   const existing = await getUserProfile(userId);
   const updated = {
@@ -63,19 +71,21 @@ export async function saveUserProfile(userId: string, profile: Partial<UserProfi
     ...profile,
     updatedAt: new Date().toISOString(),
   };
-  await redis.set(key, JSON.stringify(updated));
+  await client.set(key, JSON.stringify(updated));
 }
 
 export async function getUserProfile(userId: string): Promise<UserProfile | null> {
-  if (!redis) return null;
+  const client = await getRedisClient();
+  if (!client) return null;
   const key = `user:${userId}:profile`;
-  const data = await redis.get(key);
+  const data = await client.get(key);
   return data ? JSON.parse(data) : null;
 }
 
 // Form Progress operations
 export async function saveFormProgress(userId: string, formId: string, progress: Partial<FormProgress>): Promise<void> {
-  if (!redis) return;
+  const client = await getRedisClient();
+  if (!client) return;
   const key = `user:${userId}:form:${formId}`;
   const existing = await getFormProgress(userId, formId);
   const updated = {
@@ -83,24 +93,26 @@ export async function saveFormProgress(userId: string, formId: string, progress:
     ...progress,
     updatedAt: new Date().toISOString(),
   };
-  await redis.set(key, JSON.stringify(updated));
+  await client.set(key, JSON.stringify(updated));
 }
 
 export async function getFormProgress(userId: string, formId: string): Promise<FormProgress | null> {
-  if (!redis) return null;
+  const client = await getRedisClient();
+  if (!client) return null;
   const key = `user:${userId}:form:${formId}`;
-  const data = await redis.get(key);
+  const data = await client.get(key);
   return data ? JSON.parse(data) : null;
 }
 
 export async function getAllUserForms(userId: string): Promise<FormProgress[]> {
-  if (!redis) return [];
-  const keys = await redis.keys(`user:${userId}:form:*`);
+  const client = await getRedisClient();
+  if (!client) return [];
+  const keys = await client.keys(`user:${userId}:form:*`);
   if (keys.length === 0) return [];
 
   const forms: FormProgress[] = [];
   for (const key of keys) {
-    const data = await redis.get(key);
+    const data = await client.get(key);
     if (data) {
       forms.push(JSON.parse(data));
     }
@@ -110,19 +122,21 @@ export async function getAllUserForms(userId: string): Promise<FormProgress[]> {
 
 // Extracted document data operations
 export async function saveExtractedData(userId: string, documentType: string, data: Record<string, string>): Promise<void> {
-  if (!redis) return;
+  const client = await getRedisClient();
+  if (!client) return;
   const key = `user:${userId}:extracted:${documentType}`;
-  await redis.set(key, JSON.stringify({
+  await client.set(key, JSON.stringify({
     data,
     extractedAt: new Date().toISOString(),
   }));
 }
 
 export async function getExtractedData(userId: string, documentType: string): Promise<Record<string, string> | null> {
-  if (!redis) return null;
+  const client = await getRedisClient();
+  if (!client) return null;
   const key = `user:${userId}:extracted:${documentType}`;
-  const result = await redis.get(key);
+  const result = await client.get(key);
   return result ? JSON.parse(result).data : null;
 }
 
-export default redis;
+export { getRedisClient };
