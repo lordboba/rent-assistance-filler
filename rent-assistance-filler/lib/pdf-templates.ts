@@ -115,7 +115,15 @@ const templates: Record<string, TemplateConfig> = {
 
       // Income basics (Section II – Income)
       setText("vaco5655[0].#subform[0].Field11[0]", data.monthlyIncome || data.annualIncome); // Average monthly gross salary/wages
-      setText("vaco5655[0].#subform[0].Field12[0]", data.incomeSource || data.employmentStatus); // Primary income source
+      setText("vaco5655[0].#subform[0].Field12[0]", data.incomeSource || data.employmentStatus); // Primary income source/notes
+
+      // Expenses (Section III – Expenses)
+      setText("vaco5655[0].#subform[0].Field46[0]", data.rentOrMortgage); // 18. Rent or mortgage
+      setText("vaco5655[0].#subform[0].Field47[0]", data.foodExpenses); // 19. Food
+      setText("vaco5655[0].#subform[0].Field48[0]", data.utilities); // 20. Utilities and heat
+      setText("vaco5655[0].#subform[0].Field49[0]", data.otherLivingExpenses); // 21. Other living expenses
+      setText("vaco5655[0].#subform[0].Field50[0]", data.installmentPayments); // 22. Installment/contract debts
+      setText("vaco5655[0].#subform[0].Field51[0]", data.totalMonthlyExpenses); // 23. Total monthly expenses
     },
   },
 };
