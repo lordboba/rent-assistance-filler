@@ -8,6 +8,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import Navbar from "@/components/Navbar";
 import { FORM_TYPES } from "@/lib/types";
 import { fetchWithAuth } from "@/lib/api-client";
+import { SUPPORTED_PDF_FORMS } from "@/lib/pdf-support";
 
 interface UserProfile {
   firstName?: string;
@@ -30,6 +31,15 @@ interface UserProfile {
   };
 }
 
+interface SavedForm {
+  id: string;
+  formType: string;
+  formData: Record<string, string>;
+  status?: string;
+  updatedAt?: string;
+  createdAt?: string;
+}
+
 function ReviewContent() {
   const { user, loading } = useAuth();
   const router = useRouter();
@@ -40,6 +50,8 @@ function ReviewContent() {
   const [exported, setExported] = useState(false);
   const [formData, setFormData] = useState<Record<string, string>>({});
   const [loadingData, setLoadingData] = useState(true);
+  const [formId, setFormId] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   const currentForm = FORM_TYPES.find((f) => f.id === formType);
 
@@ -55,22 +67,40 @@ function ReviewContent() {
 
     const loadFormData = async () => {
       const data: Record<string, string> = {};
+      currentForm.fields.forEach((field) => {
+        data[field.id] = "";
+      });
 
       try {
-        const response = await fetchWithAuth(`/api/profile?userId=${user.uid}`);
-        if (response.ok) {
-          const result = await response.json();
+        // Autofill from profile as baseline
+        const profileResponse = await fetchWithAuth(`/api/profile?userId=${user.uid}`);
+        if (profileResponse.ok) {
+          const result = await profileResponse.json();
           const profile: UserProfile = result.profile || {};
-
-          // Autofill fields that have autoFillKey
           currentForm.fields.forEach((field) => {
             if (field.autoFillKey) {
               const value = getProfileValue(profile, field.autoFillKey, user.email || "");
-              data[field.id] = value || "";
-            } else {
-              data[field.id] = "";
+              if (value) {
+                data[field.id] = value;
+              }
             }
           });
+        }
+
+        // Overlay any saved form data for this form type
+        const formsResponse = await fetchWithAuth(`/api/forms?userId=${user.uid}`);
+        if (formsResponse.ok) {
+          const result = await formsResponse.json();
+          const forms: SavedForm[] = result.forms || [];
+          const matching = forms
+            .filter((f) => f.id && f.id.startsWith(formType || "") && f.formType === formType)
+            .sort((a, b) => new Date(b.updatedAt || "").getTime() - new Date(a.updatedAt || "").getTime());
+
+          if (matching.length > 0) {
+            const selected = matching[0];
+            setFormId(selected.id);
+            Object.assign(data, selected.formData || {});
+          }
         }
       } catch (error) {
         console.error("Error loading form data:", error);
@@ -114,50 +144,47 @@ function ReviewContent() {
   };
 
   const handleExportPDF = async () => {
+    if (!formType) return;
+    if (!SUPPORTED_PDF_FORMS.includes(formType)) {
+      setError("PDF export for this form will be added soon. Currently supported: Section 8, VA Benefits, Income Verification.");
+      return;
+    }
+
     setExporting(true);
+    setError(null);
 
-    // Simulate PDF generation delay
-    await new Promise((resolve) => setTimeout(resolve, 1000));
+    try {
+      const response = await fetchWithAuth("/api/forms/export", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          userId: user?.uid,
+          formType,
+          formId,
+        }),
+      });
 
-    // Generate form content with actual data
-    const lines: string[] = [
-      `${currentForm?.name}`,
-      `${"=".repeat(50)}`,
-      ``,
-      `Generated: ${new Date().toLocaleDateString()}`,
-      `Category: ${currentForm?.category}`,
-      ``,
-      `FORM DATA`,
-      `${"-".repeat(50)}`,
-      ``,
-    ];
+      if (!response.ok) {
+        const message = await response.text();
+        throw new Error(message || "Failed to generate PDF");
+      }
 
-    currentForm?.fields.forEach((field) => {
-      const value = formData[field.id] || "Not provided";
-      // Mask SSN in export too
-      const displayValue = field.id === "ssn" && value !== "Not provided"
-        ? `***-**-${value.replace(/\D/g, "").slice(-4)}`
-        : value;
-      lines.push(`${field.label}: ${displayValue}`);
-    });
-
-    lines.push(``);
-    lines.push(`${"-".repeat(50)}`);
-    lines.push(`This form was auto-filled from your saved profile.`);
-    lines.push(`Please review all information for accuracy before submission.`);
-
-    setExporting(false);
-    setExported(true);
-
-    // Download as text file (in production, this would be a proper PDF)
-    const element = document.createElement("a");
-    const content = lines.join("\n");
-    const file = new Blob([content], { type: "text/plain" });
-    element.href = URL.createObjectURL(file);
-    element.download = `${formType}-application.txt`;
-    document.body.appendChild(element);
-    element.click();
-    document.body.removeChild(element);
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `${formType}-application.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      setExported(true);
+    } catch (err) {
+      console.error(err);
+      setError("Unable to generate the PDF right now. Please try again.");
+    } finally {
+      setExporting(false);
+    }
   };
 
   if (loading || !user || loadingData) {
@@ -292,6 +319,16 @@ function ReviewContent() {
                 </svg>
               )}
             </button>
+            {!SUPPORTED_PDF_FORMS.includes(currentForm.id) && (
+              <p className="text-sm text-secondary">
+                PDF export is currently available for HUD Section 8 (HUD-52641), VA Benefits Verification (26-8937), and Income Verification (VA 5655). Other forms will be added next.
+              </p>
+            )}
+            {error && (
+              <div className="text-sm text-error bg-red-50 border border-red-200 rounded-md p-3">
+                {error}
+              </div>
+            )}
           </div>
         </div>
 

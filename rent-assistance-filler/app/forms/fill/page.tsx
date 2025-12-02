@@ -8,6 +8,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import Navbar from "@/components/Navbar";
 import { FORM_TYPES, FormField } from "@/lib/types";
 import { fetchWithAuth } from "@/lib/api-client";
+import { SUPPORTED_PDF_FORMS } from "@/lib/pdf-support";
 
 interface UserProfile {
   firstName?: string;
@@ -44,6 +45,9 @@ function FormFillContent() {
 
   const [formData, setFormData] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
+  const [exported, setExported] = useState(false);
   const [loadingData, setLoadingData] = useState(true);
   const [lastSaved, setLastSaved] = useState<Date | null>(null);
   const [formId, setFormId] = useState<string | null>(null);
@@ -191,8 +195,10 @@ function FormFillContent() {
     setFormData((prev) => ({ ...prev, [name]: value }));
   };
 
-  const handleSave = async (status: "draft" | "completed") => {
+  const handleSave = async (status: "draft" | "completed"): Promise<string | null> => {
     setSaving(true);
+    setExportError(null);
+    setExported(false);
 
     try {
       const response = await fetchWithAuth("/api/forms", {
@@ -206,20 +212,75 @@ function FormFillContent() {
         }),
       });
 
-      if (response.ok) {
-        const result = await response.json();
-        if (result.formId) {
-          setFormId(result.formId);
-        }
-        setLastSaved(new Date());
-        if (status === "completed") {
-          router.push(`/forms/review?type=${formType}`);
-        }
+      if (!response.ok) {
+        throw new Error("Failed to save form");
       }
+
+      const result = await response.json();
+      const newId = result.formId || formId;
+      if (newId) {
+        setFormId(newId);
+      }
+      setLastSaved(new Date());
+      if (status === "completed") {
+        router.push(`/forms/review?type=${formType}`);
+      }
+      return newId || null;
     } catch (error) {
       console.error("Error saving form:", error);
+      return null;
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleExportPdf = async () => {
+    if (!formType || !SUPPORTED_PDF_FORMS.includes(formType)) {
+      setExportError("PDF export for this form will be added soon.");
+      return;
+    }
+    setExporting(true);
+    setExportError(null);
+    setExported(false);
+
+    const savedId = await handleSave("draft");
+    if (!savedId && !formId) {
+      setExporting(false);
+      setExportError("Save the form first, then try exporting again.");
+      return;
+    }
+
+    try {
+      const response = await fetchWithAuth("/api/forms/export", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          userId: user?.uid,
+          formType,
+          formId: savedId || formId,
+        }),
+      });
+
+      if (!response.ok) {
+        const message = await response.text();
+        throw new Error(message || "Failed to generate PDF");
+      }
+
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `${formType}-application.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      setExported(true);
+    } catch (err) {
+      console.error(err);
+      setExportError("Unable to generate the PDF right now. Please try again.");
+    } finally {
+      setExporting(false);
     }
   };
 
@@ -393,6 +454,9 @@ function FormFillContent() {
                 <p className="text-sm text-blue-800 mt-1">
                   Fields are auto-filled from your profile. Changes are automatically saved.
                 </p>
+                <p className="text-xs text-blue-700 mt-2">
+                  PDF export ready for HUD Section 8 (52641), VA Benefits Verification (26-8937), and Income Verification (VA 5655). Others export soon.
+                </p>
               </div>
             </div>
             {lastSaved && (
@@ -456,15 +520,35 @@ function FormFillContent() {
             >
               Save as Draft
             </button>
-            <button
-              type="button"
-              onClick={() => handleSave("completed")}
-              disabled={saving}
-              className="btn-primary w-full sm:w-auto"
-            >
-              {saving ? "Saving..." : "Complete & Review"}
-            </button>
+            <div className="flex flex-col sm:flex-row gap-3 w-full sm:w-auto">
+              <button
+                type="button"
+                onClick={() => handleSave("completed")}
+                disabled={saving}
+                className="btn-primary w-full sm:w-auto"
+              >
+                {saving ? "Saving..." : "Complete & Review"}
+              </button>
+              <button
+                type="button"
+                onClick={handleExportPdf}
+                disabled={exporting || !SUPPORTED_PDF_FORMS.includes(currentForm.id)}
+                className={`btn-secondary w-full sm:w-auto ${SUPPORTED_PDF_FORMS.includes(currentForm.id) ? "" : "opacity-60 cursor-not-allowed"}`}
+              >
+                {exporting ? "Generating PDF..." : SUPPORTED_PDF_FORMS.includes(currentForm.id) ? "Download PDF" : "PDF Coming Soon"}
+              </button>
+            </div>
           </div>
+          {exportError && (
+            <div className="text-sm text-error bg-red-50 border border-red-200 rounded-md p-3">
+              {exportError}
+            </div>
+          )}
+          {exported && (
+            <div className="text-sm text-green-800 bg-green-50 border border-green-200 rounded-md p-3">
+              PDF generated and downloaded.
+            </div>
+          )}
         </form>
       </main>
     </div>

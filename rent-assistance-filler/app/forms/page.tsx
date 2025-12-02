@@ -8,6 +8,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import Navbar from "@/components/Navbar";
 import FormCard from "@/components/FormCard";
 import { FORM_TYPES } from "@/lib/types";
+import { SUPPORTED_PDF_FORMS, COMING_SOON_PDF_FORMS } from "@/lib/pdf-support";
 
 export default function Forms() {
   const { user, loading } = useAuth();
@@ -40,6 +41,20 @@ export default function Forms() {
           <p className="text-secondary mt-2">
             Choose the forms you need to complete. Your profile data will be auto-filled.
           </p>
+          <div className="mt-4 grid gap-2 sm:grid-cols-2">
+            <div className="text-sm text-foreground bg-white border border-border rounded-lg p-3">
+              <p className="font-semibold">PDF export ready</p>
+              <p className="text-secondary mt-1">
+                HUD Section 8 (52641), VA Benefits Verification (26-8937), Income Verification (VA 5655).
+              </p>
+            </div>
+            <div className="text-sm text-secondary bg-muted border border-dashed border-border rounded-lg p-3">
+              <p className="font-semibold text-foreground">Coming soon</p>
+              <p className="mt-1">
+                {COMING_SOON_PDF_FORMS.length > 0 ? COMING_SOON_PDF_FORMS.map((id) => FORM_TYPES.find((f) => f.id === id)?.name || id).join(", ") : "All forms"}
+              </p>
+            </div>
+          </div>
         </div>
 
         {/* Federal Programs */}
@@ -50,12 +65,23 @@ export default function Forms() {
           </h2>
           <div className="grid sm:grid-cols-2 gap-4">
             {federalForms.map((form) => (
-              <FormCard
-                key={form.id}
-                title={form.name}
-                description={form.description}
-                onClick={() => router.push(`/forms/fill?type=${form.id}`)}
-              />
+              <div key={form.id} className="relative">
+                <FormCard
+                  title={form.name}
+                  description={form.description}
+                  onClick={() => router.push(`/forms/fill?type=${form.id}`)}
+                />
+                {SUPPORTED_PDF_FORMS.includes(form.id) && (
+                  <span className="absolute top-2 right-2 text-[11px] font-semibold px-2 py-1 rounded-full bg-green-100 text-green-800 border border-green-200">
+                    PDF ready
+                  </span>
+                )}
+                {!SUPPORTED_PDF_FORMS.includes(form.id) && (
+                  <span className="absolute top-2 right-2 text-[11px] font-semibold px-2 py-1 rounded-full bg-yellow-50 text-yellow-800 border border-yellow-200">
+                    PDF soon
+                  </span>
+                )}
+              </div>
             ))}
           </div>
         </section>
@@ -68,12 +94,23 @@ export default function Forms() {
           </h2>
           <div className="grid sm:grid-cols-2 gap-4">
             {generalForms.map((form) => (
-              <FormCard
-                key={form.id}
-                title={form.name}
-                description={form.description}
-                onClick={() => router.push(`/forms/fill?type=${form.id}`)}
-              />
+              <div key={form.id} className="relative">
+                <FormCard
+                  title={form.name}
+                  description={form.description}
+                  onClick={() => router.push(`/forms/fill?type=${form.id}`)}
+                />
+                {SUPPORTED_PDF_FORMS.includes(form.id) && (
+                  <span className="absolute top-2 right-2 text-[11px] font-semibold px-2 py-1 rounded-full bg-green-100 text-green-800 border border-green-200">
+                    PDF ready
+                  </span>
+                )}
+                {!SUPPORTED_PDF_FORMS.includes(form.id) && (
+                  <span className="absolute top-2 right-2 text-[11px] font-semibold px-2 py-1 rounded-full bg-yellow-50 text-yellow-800 border border-yellow-200">
+                    PDF soon
+                  </span>
+                )}
+              </div>
             ))}
           </div>
         </section>
