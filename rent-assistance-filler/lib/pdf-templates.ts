@@ -100,17 +100,22 @@ const templates: Record<string, TemplateConfig> = {
         }
       };
 
-      const fullName = [data.firstName, data.lastName].filter(Boolean).join(" ").trim();
-      setText("vaco5655[0].#subform[0].Field1[0]", fullName);
-      setText("vaco5655[0].#subform[0].Field2[0]", data.ssn);
-      setText("vaco5655[0].#subform[0].Field3[0]", data.vaFileNumber || data.vaFile);
-      setText("vaco5655[0].#subform[0].Field4[0]", data.currentAddress || data.address);
-      setText("vaco5655[0].#subform[0].Field5[0]", data.phone);
-      setText("vaco5655[0].#subform[0].Field6[0]", data.email);
-      setText("vaco5655[0].#subform[0].Field7[0]", data.dateOfBirth);
-      setText("vaco5655[0].#subform[0].Field10[0]", data.employmentStatus);
-      setText("vaco5655[0].#subform[0].Field11[0]", data.monthlyIncome || data.annualIncome);
-      setText("vaco5655[0].#subform[0].Field12[0]", data.incomeSource);
+      const fullName = [data.firstName, data.middleName, data.lastName].filter(Boolean).join(" ").trim();
+
+      // Section I – Personal Data
+      setText("vaco5655[0].#subform[0].Field1[0]", data.ssn); // Social Security Number
+      // Field2 is "File No." and should remain blank unless explicitly provided
+      setText("vaco5655[0].#subform[0].Field3[0]", data.reason || data.why || "Waiver"); // Why are you completing this form
+      setText("vaco5655[0].#subform[0].Field4[0]", fullName); // First, middle, last name
+      setText("vaco5655[0].#subform[0].Field5[0]", data.currentAddress || data.address); // Address
+      setText("vaco5655[0].#subform[0].Field6[0]", data.phone); // Telephone
+      setText("vaco5655[0].#subform[0].Field7[0]", data.dateOfBirth); // Date of birth
+      setText("vaco5655[0].#subform[0].Field9[0]", data.spouseName || data.spouse); // Name of spouse
+      setText("vaco5655[0].#subform[0].Field10[0]", data.dependentAges || data.dependentsAges || data.agesOfDependents); // Ages of other dependents
+
+      // Income basics (Section II – Income)
+      setText("vaco5655[0].#subform[0].Field11[0]", data.monthlyIncome || data.annualIncome); // Average monthly gross salary/wages
+      setText("vaco5655[0].#subform[0].Field12[0]", data.incomeSource || data.employmentStatus); // Primary income source
     },
   },
 };
