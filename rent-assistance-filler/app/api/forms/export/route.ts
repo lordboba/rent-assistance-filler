@@ -47,8 +47,9 @@ export async function POST(request: NextRequest) {
     }
 
     const pdfBytes = await generateFilledPdf(formType, formData);
+    const pdfBlob = new Blob([pdfBytes], { type: "application/pdf" });
 
-    return new NextResponse(pdfBytes, {
+    return new NextResponse(pdfBlob, {
       status: 200,
       headers: {
         "Content-Type": "application/pdf",
