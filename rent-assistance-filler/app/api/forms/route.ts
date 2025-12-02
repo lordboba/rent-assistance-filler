@@ -71,6 +71,12 @@ export async function GET(request: NextRequest) {
     }
 
     const forms = await getAllUserForms(userId);
+    // Return most recently updated first so clients can easily pick latest drafts
+    forms.sort((a, b) => {
+      const aTime = new Date(a.updatedAt || a.createdAt || 0).getTime();
+      const bTime = new Date(b.updatedAt || b.createdAt || 0).getTime();
+      return bTime - aTime;
+    });
     return NextResponse.json({ forms });
   } catch (error) {
     console.error("Error fetching forms:", error);

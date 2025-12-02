@@ -34,7 +34,9 @@ interface UserProfile {
 interface SavedForm {
   id: string;
   formData: Record<string, string>;
-  status: string;
+  status: "draft" | "completed" | "exported" | string;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 function FormFillContent() {
@@ -77,9 +79,16 @@ function FormFillContent() {
         const formsResponse = await fetchWithAuth(`/api/forms?userId=${user.uid}`);
         if (formsResponse.ok) {
           const formsData = await formsResponse.json();
-          const existingForm = formsData.forms?.find(
-            (f: SavedForm) => f.id.startsWith(formType || "") && f.status === "draft"
-          );
+          const existingForm = formsData.forms
+            ?.filter(
+              (f: SavedForm) =>
+                f.id.startsWith(formType || "") && (f.status === "draft" || f.status === "completed")
+            )
+            ?.sort(
+              (a: SavedForm, b: SavedForm) =>
+                new Date(b.updatedAt || b.createdAt || 0).getTime() -
+                new Date(a.updatedAt || a.createdAt || 0).getTime()
+            )?.[0];
 
           if (existingForm && existingForm.formData) {
             // Load saved form data
